@@ -11,6 +11,13 @@ import {
 } from '@stellar/stellar-sdk';
 import type { AssetBalance, NetworkProfile, TxHistoryItem } from './types';
 
+/** Prevent accidentally using Stellar's Ed25519 signer on an unverified custom fork. */
+export function assertStandardStellarSigning(network: NetworkProfile) {
+  if (network.accountKeyAlgorithm === 'secp256k1') {
+    throw new Error('This network requires a fork-specific secp256k1 signing adapter. Standard Stellar XDR signing is disabled until the fork format is verified.');
+  }
+}
+
 export function horizonServer(network: NetworkProfile) {
   return new Horizon.Server(network.horizonUrl, { allowHttp: network.horizonUrl.startsWith('http://') });
 }
@@ -84,6 +91,7 @@ export async function sendPayment(input: {
   issuer?: string;
   memo?: string;
 }) {
+  assertStandardStellarSigning(input.network);
   const source = Keypair.fromSecret(input.sourceSecret.trim());
   const server = horizonServer(input.network);
   const account = await server.loadAccount(source.publicKey());
@@ -111,6 +119,7 @@ export async function changeTrust(input: {
   issuer: string;
   limit?: string;
 }) {
+  assertStandardStellarSigning(input.network);
   const source = Keypair.fromSecret(input.sourceSecret.trim());
   const server = horizonServer(input.network);
   const account = await server.loadAccount(source.publicKey());
@@ -136,6 +145,7 @@ export async function setHomeDomain(input: {
   sourceSecret: string;
   homeDomain: string;
 }) {
+  assertStandardStellarSigning(input.network);
   const source = Keypair.fromSecret(input.sourceSecret.trim());
   const server = horizonServer(input.network);
   const account = await server.loadAccount(source.publicKey());
@@ -154,6 +164,7 @@ export async function manageData(input: {
   name: string;
   value?: string;
 }) {
+  assertStandardStellarSigning(input.network);
   const source = Keypair.fromSecret(input.sourceSecret.trim());
   const server = horizonServer(input.network);
   const account = await server.loadAccount(source.publicKey());
@@ -175,6 +186,7 @@ export async function addSigner(input: {
   medThreshold?: number;
   highThreshold?: number;
 }) {
+  assertStandardStellarSigning(input.network);
   const source = Keypair.fromSecret(input.sourceSecret.trim());
   const server = horizonServer(input.network);
   const account = await server.loadAccount(source.publicKey());
@@ -201,6 +213,7 @@ export async function buildUnsignedPaymentXdr(input: {
   issuer?: string;
   memo?: string;
 }) {
+  assertStandardStellarSigning(input.network);
   const server = horizonServer(input.network);
   const account = await server.loadAccount(input.sourcePublicKey);
   const fee = String(await server.fetchBaseFee());
