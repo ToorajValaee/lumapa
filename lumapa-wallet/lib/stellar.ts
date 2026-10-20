@@ -234,6 +234,7 @@ export function signXdr(input: { xdrEnvelope: string; networkPassphrase: string;
 }
 
 export async function submitSignedXdr(network: NetworkProfile, xdrEnvelope: string) {
+  assertStandardStellarSigning(network);
   const tx = TransactionBuilder.fromXDR(xdrEnvelope, network.networkPassphrase);
   return horizonServer(network).submitTransaction(tx);
 }
