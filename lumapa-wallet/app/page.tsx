@@ -924,6 +924,7 @@ function OnboardingFlow(props: {
   const [scanCursor, setScanCursor] = useState(0);
   const [scanLimit, setScanLimit] = useState(100);
   const [lastScanGap, setLastScanGap] = useState(0);
+  const [scanProgress, setScanProgress] = useState<number | null>(null);
   const [showUnfunded, setShowUnfunded] = useState(false);
 
   const selectedNetwork =
@@ -1149,15 +1150,17 @@ function OnboardingFlow(props: {
     if (selectedNetwork.accountKeyAlgorithm === "secp256k1") return props.setNotice({ type: "error", text: "This custom fork requires a dedicated secp256k1 account adapter. Ed25519 scanning cannot recover its addresses." });
     setDiscovering(true);
     setDiscoveryError("");
+    setScanProgress(null);
     const start = continueFromLast ? scanCursor : 0;
     const limit = Math.min(500, Math.max(1, scanLimit));
     const GAP_LIMIT = 5;
     try {
       const found = continueFromLast ? [...derivedAccounts] : [];
-      let consecutiveUnused = continueFromLast ? lastScanGap : 0;
+      let consecutiveUnused = 0;
       let nextIndex = start;
       while (nextIndex < start + limit && (continueFromLast || consecutiveUnused < GAP_LIMIT)) {
         const index = nextIndex;
+        setScanProgress(index);
         const publicKey = deriveStellarKeypair(mnemonic, index).publicKey;
         const response = await fetch(`${selectedNetwork.horizonUrl.replace(/\/$/, "")}/accounts/${encodeURIComponent(publicKey)}`, { cache: "no-store" });
         if (response.status !== 404 && !response.ok) throw new Error(`Horizon error ${response.status} at account index ${index}. Verify network/Horizon configuration.`);
@@ -1165,7 +1168,6 @@ function OnboardingFlow(props: {
         found.push({ index, publicKey, funded, selected: funded });
         consecutiveUnused = funded ? 0 : consecutiveUnused + 1;
         nextIndex += 1;
-        if (continueFromLast && funded) break;
       }
       setDerivedAccounts(found);
       setScanCursor(nextIndex);
@@ -1175,7 +1177,7 @@ function OnboardingFlow(props: {
       const message = error instanceof Error ? error.message : "Could not discover accounts.";
       setDiscoveryError(message);
       props.setNotice({ type: "error", text: message });
-    } finally { setDiscovering(false); }
+    } finally { setDiscovering(false); setScanProgress(null); }
   }
 
   async function saveRecoveredAccount() {
@@ -1651,10 +1653,12 @@ function OnboardingFlow(props: {
               <option value={20}>20</option><option value={50}>50</option><option value={100}>100</option><option value={200}>200</option>
             </select>
           </label>
+          {discovering && <p role="status" className="text-sm text-white/65">Checking account index {scanProgress ?? scanCursor} against Horizon…</p>}
+          {discoveryError && <p role="alert" className="text-sm text-red-300">{discoveryError}</p>}
           <Button type="button" onClick={() => discoverMnemonicAccounts(true)} disabled={discovering}>
             {discovering ? "Scanning…" : `Scan next indexes from ${scanCursor}`}
           </Button>
-          <p className="text-xs text-white/50">{lastScanGap >= 5 ? "Stopped after 5 consecutive unused indexes. Later indexes may still contain accounts; scan further if needed." : "Reached the configured scan limit."} No private keys are sent to Horizon.</p>
+          <p className="text-xs text-white/50">{lastScanGap >= 5 ? "Initial search stopped after 5 consecutive unused indexes. You can scan another full range to find accounts beyond a gap." : "Reached the configured scan limit."} No private keys are sent to Horizon.</p>
         </div>
       </WizardStepFrame>
     );
