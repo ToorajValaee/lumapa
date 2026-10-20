@@ -798,32 +798,23 @@ function MnemonicWordsInput({
     ),
   );
 
-  useEffect(() => {
-    if (value.trim()) return;
-    setWords(Array.from({ length: wordCount }, () => ""));
-  }, [value, wordCount]);
-
   function emit(nextWords: string[]) {
     onChange(nextWords.map((word) => word.trim().toLowerCase()).filter(Boolean).join(" "));
   }
 
   function setWordCount(nextCount: 12 | 24) {
     setWordCountState(nextCount);
-    setWords((current) => {
-      const nextWords = Array.from({ length: nextCount }, (_, index) => current[index] ?? "");
-      emit(nextWords);
-      return nextWords;
-    });
+    const nextWords = Array.from({ length: nextCount }, (_, index) => words[index] ?? "");
+    setWords(nextWords);
+    emit(nextWords);
   }
 
   function updateWord(index: number, nextValue: string) {
     const normalized = nextValue.replace(/\s+/g, "").toLowerCase();
-    setWords((current) => {
-      const nextWords = [...current];
-      nextWords[index] = normalized;
-      emit(nextWords);
-      return nextWords;
-    });
+    const nextWords = [...words];
+    nextWords[index] = normalized;
+    setWords(nextWords);
+    emit(nextWords);
   }
 
   function handlePaste(event: ClipboardEvent<HTMLInputElement>) {
@@ -902,6 +893,7 @@ function OnboardingFlow(props: {
     | "verify"
     | "recoverChoice"
     | "recoverMnemonic"
+    | "recoverAccounts"
     | "recoverSecret";
   type RecoverType = "mnemonic" | "secret";
 
@@ -925,6 +917,9 @@ function OnboardingFlow(props: {
   const [passphrase, setPassphrase] = useState("");
   const [nativeSymbol, setNativeSymbol] = useState("XLM");
   const [creating, setCreating] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [derivedAccounts, setDerivedAccounts] = useState<Array<{ index: number; publicKey: string; funded: boolean; selected: boolean }>>([]);
+  const [discoveryError, setDiscoveryError] = useState("");
 
   const selectedNetwork =
     props.state.networks.find((network) => network.id === selectedNetworkId) ??
@@ -951,7 +946,7 @@ function OnboardingFlow(props: {
     if (activeStep === "backup") return 3;
     if (activeStep === "verify") return 4;
     if (activeStep === "recoverChoice") return canCreate ? 3 : 2;
-    if (activeStep === "recoverMnemonic" || activeStep === "recoverSecret")
+    if (activeStep === "recoverMnemonic" || activeStep === "recoverAccounts" || activeStep === "recoverSecret")
       return canCreate ? 4 : 3;
     return 1;
   }
@@ -964,6 +959,7 @@ function OnboardingFlow(props: {
     if (step === "verify") return setStep("backup");
     if (step === "recoverChoice")
       return setStep(canCreate ? "method" : "network");
+    if (step === "recoverAccounts") return setStep("recoverMnemonic");
     if (step === "recoverMnemonic" || step === "recoverSecret")
       return setStep("recoverChoice");
   }
@@ -1137,73 +1133,95 @@ function OnboardingFlow(props: {
     return finalDeviceVaultKey;
   }
 
-  async function deriveMnemonicAccountOnNetwork(words: string) {
-    if (!selectedNetwork) return deriveStellarKeypair(words, 0);
-    for (let index = 0; index < 10; index += 1) {
-      const candidate = deriveStellarKeypair(words, index);
-      try {
-        await fetchBalances(selectedNetwork, candidate.publicKey);
-        return candidate;
-      } catch {
-        // Keep scanning common SEP-5 account indexes. If none exist, index 0 is used below.
-      }
+  async function discoverMnemonicAccounts() {
+    if (!selectedNetwork) return;
+    if (!isValidMnemonic(mnemonic)) {
+      props.setNotice({ type: "error", text: "Enter a valid 12- or 24-word recovery phrase." });
+      return;
     }
-    return deriveStellarKeypair(words, 0);
+    setDiscovering(true);
+    setDiscoveryError("");
+    try {
+      const candidates = Array.from({ length: 20 }, (_, index) => ({ index, publicKey: deriveStellarKeypair(mnemonic, index).publicKey }));
+      const results: Array<{ index: number; publicKey: string; funded: boolean; selected: boolean }> = [];
+      for (let offset = 0; offset < candidates.length; offset += 4) {
+        const batch = candidates.slice(offset, offset + 4);
+        const checked = await Promise.all(batch.map(async ({ index, publicKey }) => {
+          const response = await fetch(`${selectedNetwork.horizonUrl.replace(/\\/$/, "")}/accounts/${encodeURIComponent(publicKey)}`);
+          if (response.status === 404) return { index, publicKey, funded: false, selected: false };
+          if (!response.ok) throw new Error(`Horizon HTTP ${response.status} for account index ${index}`);
+          return { index, publicKey, funded: true, selected: true };
+        }));
+        results.push(...checked);
+      }
+      setDerivedAccounts(results);
+      setStep("recoverAccounts");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not discover accounts.";
+      setDiscoveryError(message);
+      props.setNotice({ type: "error", text: message });
+    } finally { setDiscovering(false); }
   }
 
   async function saveRecoveredAccount() {
     if (!selectedNetwork) return;
-    if (recoverType === "secret" && !secret.trim())
-      return props.setNotice({ type: "error", text: "Enter the secret seed." });
-    if (recoverType === "mnemonic" && !isValidMnemonic(mnemonic))
-      return props.setNotice({
-        type: "error",
-        text: "Enter a valid mnemonic phrase.",
-      });
+    if (recoverType === "mnemonic") return discoverMnemonicAccounts();
+    if (!secret.trim()) return props.setNotice({ type: "error", text: "Enter the secret seed." });
+    setCreating(true);
     try {
       const vaultKey = await ensureVaultPasscode();
-      const recovered =
-        recoverType === "secret"
-          ? keypairFromSecret(secret)
-          : await deriveMnemonicAccountOnNetwork(mnemonic);
-      const derivationPath =
-        recoverType === "secret"
-          ? undefined
-          : (recovered as ReturnType<typeof deriveStellarKeypair>)
-              .derivationPath;
+      const recovered = keypairFromSecret(secret);
       const account: StoredAccount = {
         id: crypto.randomUUID(),
         label: label || `Recovered ${props.state.accounts.length + 1}`,
         publicKey: recovered.publicKey,
         networkId: selectedNetwork.id,
-        derivationPath,
         encryptedSecret: await encryptText(recovered.secret, vaultKey),
-        encryptedMnemonic:
-          recoverType === "mnemonic"
-            ? await encryptText(mnemonic.trim(), vaultKey)
-            : undefined,
-        importedBy: recoverType,
+        importedBy: "secret",
         createdAt: new Date().toISOString(),
       };
-      props.setState((current) =>
-        addOrReplaceAccount(
-          { ...current, activeNetworkId: selectedNetwork.id },
-          account,
-        ),
-      );
+      props.setState((current) => addOrReplaceAccount({ ...current, activeNetworkId: selectedNetwork.id }, account));
       setSecret("");
-      setMnemonic("");
-      props.setNotice({
-        type: "ok",
-        text: "Account recovered and encrypted locally.",
-      });
+      props.setNotice({ type: "ok", text: "Account recovered and encrypted locally." });
     } catch (error) {
-      props.setNotice({
-        type: "error",
-        text:
-          error instanceof Error ? error.message : "Could not recover account.",
+      props.setNotice({ type: "error", text: error instanceof Error ? error.message : "Could not recover account." });
+    } finally { setCreating(false); }
+  }
+
+  async function importSelectedDerivedAccounts() {
+    if (!selectedNetwork || !isValidMnemonic(mnemonic)) return;
+    const selected = derivedAccounts.filter((item) => item.selected);
+    if (!selected.length) return props.setNotice({ type: "error", text: "Select at least one derived account." });
+    setCreating(true);
+    try {
+      const vaultKey = await ensureVaultPasscode();
+      const encryptedMnemonic = await encryptText(mnemonic.trim().toLowerCase(), vaultKey);
+      const accounts: StoredAccount[] = [];
+      for (const item of selected) {
+        const derived = deriveStellarKeypair(mnemonic, item.index);
+        accounts.push({
+          id: crypto.randomUUID(),
+          label: selected.length === 1 ? label || `Account ${item.index + 1}` : `${label || "Recovered"} ${item.index + 1}`,
+          publicKey: derived.publicKey,
+          networkId: selectedNetwork.id,
+          derivationPath: derived.derivationPath,
+          encryptedSecret: await encryptText(derived.secret, vaultKey),
+          encryptedMnemonic,
+          importedBy: "mnemonic",
+          createdAt: new Date().toISOString(),
+        });
+      }
+      props.setState((current) => {
+        let next = { ...current, activeNetworkId: selectedNetwork.id };
+        for (const account of accounts) next = addOrReplaceAccount(next, account);
+        return next;
       });
-    }
+      setMnemonic("");
+      setDerivedAccounts([]);
+      props.setNotice({ type: "ok", text: `${accounts.length} account(s) recovered and encrypted locally.` });
+    } catch (error) {
+      props.setNotice({ type: "error", text: error instanceof Error ? error.message : "Could not import accounts." });
+    } finally { setCreating(false); }
   }
 
   async function createBadjeAccount() {
@@ -1574,6 +1592,31 @@ function OnboardingFlow(props: {
     );
   }
 
+  if (step === "recoverAccounts") {
+    return (
+      <WizardStepFrame heading="Choose accounts"
+        description={`Found ${derivedAccounts.filter((account) => account.funded).length} active account(s) among the first 20 derivation indexes on ${selectedNetwork?.name}. Select which to import; unfunded accounts may also be selected.`}
+        onBack={goBack} currentStepIndex={currentStepIndex} totalSteps={totalSteps}
+        footer={<Button type="button" onClick={importSelectedDerivedAccounts} disabled={creating || !derivedAccounts.some((account) => account.selected)} strong>{creating ? "Importing…" : `Import ${derivedAccounts.filter((account) => account.selected).length} account(s)`}</Button>}>
+        <div className="space-y-3">
+          {derivedAccounts.map((account) => (
+            <label key={account.index} className="flex items-center gap-3 rounded-xl border border-white/10 p-3">
+              <input type="checkbox" checked={account.selected} onChange={(event) => {
+                const selected = event.currentTarget.checked;
+                setDerivedAccounts((current) => current.map((item) => item.index === account.index ? { ...item, selected } : item));
+              }} />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium">Account {account.index + 1} · {account.funded ? "Active" : "Not funded"}</span>
+                <span className="block truncate font-mono text-xs text-white/50">{account.publicKey}</span>
+              </span>
+            </label>
+          ))}
+          <p className="text-xs text-white/50">Accounts outside the first 20 indexes require an extended scan. Secrets stay on this device.</p>
+        </div>
+      </WizardStepFrame>
+    );
+  }
+
   if (step === "recoverMnemonic") {
     return (
       <WizardStepFrame
@@ -1583,8 +1626,8 @@ function OnboardingFlow(props: {
         currentStepIndex={currentStepIndex}
         totalSteps={totalSteps}
         footer={
-          <Button type="button" onClick={saveRecoveredAccount} strong>
-            <KeyRound size={16} /> Recover account
+          <Button type="button" onClick={discoverMnemonicAccounts} disabled={discovering} strong>
+            <KeyRound size={16} /> {discovering ? "Searching accounts…" : "Find derived accounts"}
           </Button>
         }
       >
