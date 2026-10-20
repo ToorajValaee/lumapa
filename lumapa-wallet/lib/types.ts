@@ -1,4 +1,10 @@
+/** Standard Stellar accounts are Ed25519. Legacy forks may implement other account types.
+ * Do not set secp256k1 without a fork-specific signing adapter.
+ */
+export type AccountKeyAlgorithm = 'ed25519' | 'secp256k1';
 export type NetworkProfile = {
+  accountKeyAlgorithm?: AccountKeyAlgorithm;
+  legacyAdapterId?: string;
   id: string;
   name: string;
   horizonUrl: string;
@@ -18,6 +24,7 @@ export type StoredAccount = {
   publicKey: string;
   networkId: string;
   derivationPath?: string;
+  keyAlgorithm?: AccountKeyAlgorithm;
   encryptedSecret?: string;
   encryptedMnemonic?: string;
   importedBy: 'mnemonic' | 'secret';
