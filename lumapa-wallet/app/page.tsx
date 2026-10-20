@@ -916,6 +916,7 @@ function OnboardingFlow(props: {
   const [rpcUrl, setRpcUrl] = useState("");
   const [passphrase, setPassphrase] = useState("");
   const [nativeSymbol, setNativeSymbol] = useState("XLM");
+  const [customKeyAlgorithm, setCustomKeyAlgorithm] = useState<"ed25519" | "secp256k1">("ed25519");
   const [creating, setCreating] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [derivedAccounts, setDerivedAccounts] = useState<Array<{ index: number; publicKey: string; funded: boolean; selected: boolean }>>([]);
@@ -1048,6 +1049,7 @@ function OnboardingFlow(props: {
   }
 
   function addCustomNetwork() {
+    if (customKeyAlgorithm === "secp256k1") return props.setNotice({ type: "error", text: "This fork needs its account encoding and signing adapter. Please choose Ed25519 until native secp256k1 support is verified." });
     if (!horizonUrl || !passphrase)
       return props.setNotice({
         type: "error",
@@ -1062,6 +1064,7 @@ function OnboardingFlow(props: {
       nativeAssetSymbol: nativeSymbol || "XLM",
       nativeAssetDisplayName: `${nativeSymbol || "XLM"} native`,
       isCustom: true,
+      accountKeyAlgorithm: customKeyAlgorithm,
     };
     props.setState((current) => ({
       ...current,
@@ -1084,6 +1087,7 @@ function OnboardingFlow(props: {
     setRpcUrl(FUTURENET_CUSTOM_PRESET.rpcUrl ?? "");
     setPassphrase(FUTURENET_CUSTOM_PRESET.networkPassphrase);
     setNativeSymbol(FUTURENET_CUSTOM_PRESET.nativeAssetSymbol);
+    setCustomKeyAlgorithm("ed25519");
     setStep("custom");
   }
 
@@ -1143,6 +1147,7 @@ function OnboardingFlow(props: {
       props.setNotice({ type: "error", text: "Enter a valid 12- or 24-word recovery phrase." });
       return;
     }
+    if (selectedNetwork.accountKeyAlgorithm === "secp256k1") return props.setNotice({ type: "error", text: "This custom fork requires a dedicated secp256k1 account adapter. Ed25519 scanning cannot recover its addresses." });
     setDiscovering(true);
     setDiscoveryError("");
     const start = continueFromLast ? scanCursor : 0;
@@ -1200,6 +1205,7 @@ function OnboardingFlow(props: {
 
   async function importSelectedDerivedAccounts() {
     if (!selectedNetwork || !isValidMnemonic(mnemonic)) return;
+    if (selectedNetwork.accountKeyAlgorithm === "secp256k1") return props.setNotice({ type: "error", text: "Legacy secp256k1 account import is not yet supported for this fork." });
     const selected = derivedAccounts.filter((item) => item.selected);
     if (!selected.length) return props.setNotice({ type: "error", text: "Select at least one derived account." });
     setCreating(true);
@@ -1391,6 +1397,14 @@ function OnboardingFlow(props: {
               </Button>
             </div>
           </div>
+          <label className="block space-y-2 text-sm">
+            <span>Account signature type</span>
+            <select className="w-full rounded-xl border border-white/15 bg-zinc-900 px-3 py-3" value={customKeyAlgorithm} onChange={(event) => setCustomKeyAlgorithm(event.currentTarget.value as "ed25519" | "secp256k1")}>
+              <option value="ed25519">Standard Stellar (Ed25519)</option>
+              <option value="secp256k1">Custom fork (secp256k1 — not yet supported)</option>
+            </select>
+          </label>
+          {customKeyAlgorithm === "secp256k1" && <p role="alert" className="text-xs text-amber-300">This algorithm requires fork-specific address derivation, Horizon parsing and transaction signing. Lumapa will not create an unusable account. See docs/legacy-secp256k1.md.</p>}
           <Field
             label="Network passphrase"
             value={passphrase}
