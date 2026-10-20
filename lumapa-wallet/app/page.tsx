@@ -926,6 +926,7 @@ function OnboardingFlow(props: {
   const [scanLimit, setScanLimit] = useState(100);
   const [lastScanGap, setLastScanGap] = useState(0);
   const [scanProgress, setScanProgress] = useState<number | null>(null);
+  const scanLock = useRef(false);
   const [showUnfunded, setShowUnfunded] = useState(false);
 
   const selectedNetwork =
@@ -1153,7 +1154,8 @@ function OnboardingFlow(props: {
       if (!adapter) return props.setNotice({ type: "error", text: "No verified secp256k1 adapter is installed for this fork. Its Core source and derivation/signature specification are required." });
       return props.setNotice({ type: "error", text: "Legacy account discovery is not enabled until fork-specific imports and signing are fully validated." });
     }
-    if (discovering) return;
+    if (scanLock.current) return;
+    scanLock.current = true;
     setDiscovering(true);
     setDiscoveryError("");
     setScanProgress(null);
@@ -1162,6 +1164,7 @@ function OnboardingFlow(props: {
     const GAP_LIMIT = 5;
     try {
       const found = continueFromLast ? [...derivedAccounts] : [];
+      const scanNetworkId = selectedNetwork.id;
       let consecutiveUnused = 0;
       let nextIndex = start;
       while (nextIndex < start + limit && (continueFromLast || consecutiveUnused < GAP_LIMIT)) {
@@ -1175,6 +1178,7 @@ function OnboardingFlow(props: {
         consecutiveUnused = funded ? 0 : consecutiveUnused + 1;
         nextIndex += 1;
       }
+      if (selectedNetwork.id !== scanNetworkId) throw new Error("Network changed during account discovery.");
       setDerivedAccounts(found);
       setScanCursor(nextIndex);
       setLastScanGap(consecutiveUnused);
@@ -1183,7 +1187,7 @@ function OnboardingFlow(props: {
       const message = error instanceof Error ? error.message : "Could not discover accounts.";
       setDiscoveryError(message);
       props.setNotice({ type: "error", text: message });
-    } finally { setDiscovering(false); setScanProgress(null); }
+    } finally { scanLock.current = false; setDiscovering(false); setScanProgress(null); }
   }
 
   async function saveRecoveredAccount() {
