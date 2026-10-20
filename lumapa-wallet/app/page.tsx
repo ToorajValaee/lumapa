@@ -920,6 +920,10 @@ function OnboardingFlow(props: {
   const [discovering, setDiscovering] = useState(false);
   const [derivedAccounts, setDerivedAccounts] = useState<Array<{ index: number; publicKey: string; funded: boolean; selected: boolean }>>([]);
   const [discoveryError, setDiscoveryError] = useState("");
+  const [scanCursor, setScanCursor] = useState(0);
+  const [scanLimit, setScanLimit] = useState(100);
+  const [lastScanGap, setLastScanGap] = useState(0);
+  const [showUnfunded, setShowUnfunded] = useState(false);
 
   const selectedNetwork =
     props.state.networks.find((network) => network.id === selectedNetworkId) ??
@@ -1133,7 +1137,7 @@ function OnboardingFlow(props: {
     return finalDeviceVaultKey;
   }
 
-  async function discoverMnemonicAccounts() {
+  async function discoverMnemonicAccounts(continueFromLast = false) {
     if (!selectedNetwork) return;
     if (!isValidMnemonic(mnemonic)) {
       props.setNotice({ type: "error", text: "Enter a valid 12- or 24-word recovery phrase." });
@@ -1141,20 +1145,26 @@ function OnboardingFlow(props: {
     }
     setDiscovering(true);
     setDiscoveryError("");
+    const start = continueFromLast ? scanCursor : 0;
+    const limit = Math.min(500, Math.max(1, scanLimit));
+    const GAP_LIMIT = 5;
     try {
-      const candidates = Array.from({ length: 20 }, (_, index) => ({ index, publicKey: deriveStellarKeypair(mnemonic, index).publicKey }));
-      const results: Array<{ index: number; publicKey: string; funded: boolean; selected: boolean }> = [];
-      for (let offset = 0; offset < candidates.length; offset += 4) {
-        const batch = candidates.slice(offset, offset + 4);
-        const checked = await Promise.all(batch.map(async ({ index, publicKey }) => {
-          const response = await fetch(`${selectedNetwork.horizonUrl.replace(/\/$/, "")}/accounts/${encodeURIComponent(publicKey)}`);
-          if (response.status === 404) return { index, publicKey, funded: false, selected: false };
-          if (!response.ok) throw new Error(`Horizon HTTP ${response.status} for account index ${index}`);
-          return { index, publicKey, funded: true, selected: true };
-        }));
-        results.push(...checked);
+      const found = continueFromLast ? [...derivedAccounts] : [];
+      let consecutiveUnused = 0;
+      let nextIndex = start;
+      while (nextIndex < start + limit && consecutiveUnused < GAP_LIMIT) {
+        const index = nextIndex;
+        const publicKey = deriveStellarKeypair(mnemonic, index).publicKey;
+        const response = await fetch(`${selectedNetwork.horizonUrl.replace(/\/$/, "")}/accounts/${encodeURIComponent(publicKey)}`, { cache: "no-store" });
+        if (response.status !== 404 && !response.ok) throw new Error(`Horizon error ${response.status} at account index ${index}. Verify network/Horizon configuration.`);
+        const funded = response.ok;
+        found.push({ index, publicKey, funded, selected: funded });
+        consecutiveUnused = funded ? 0 : consecutiveUnused + 1;
+        nextIndex += 1;
       }
-      setDerivedAccounts(results);
+      setDerivedAccounts(found);
+      setScanCursor(nextIndex);
+      setLastScanGap(consecutiveUnused);
       setStep("recoverAccounts");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not discover accounts.";
@@ -1593,25 +1603,41 @@ function OnboardingFlow(props: {
   }
 
   if (step === "recoverAccounts") {
+    const found = derivedAccounts.filter((account) => account.funded);
+    const visible = showUnfunded ? derivedAccounts : found;
     return (
       <WizardStepFrame heading="Choose accounts"
-        description={`Found ${derivedAccounts.filter((account) => account.funded).length} active account(s) among the first 20 derivation indexes on ${selectedNetwork?.name}. Select which to import; unfunded accounts may also be selected.`}
+        description={`Found ${found.length} funded account(s) on ${selectedNetwork?.name}. Scanned indexes 0–${Math.max(0, scanCursor - 1)}. Recovery uses standard Stellar SEP-5 derivation.`}
         onBack={goBack} currentStepIndex={currentStepIndex} totalSteps={totalSteps}
         footer={<Button type="button" onClick={importSelectedDerivedAccounts} disabled={creating || !derivedAccounts.some((account) => account.selected)} strong>{creating ? "Importing…" : `Import ${derivedAccounts.filter((account) => account.selected).length} account(s)`}</Button>}>
         <div className="space-y-3">
-          {derivedAccounts.map((account) => (
+          {found.length === 0 && <p className="text-sm text-white/65">No funded accounts were found in the scanned range. Check that you selected the correct network and that the mnemonic belongs to a SEP-5 wallet. You can inspect an unfunded address or scan further.</p>}
+          {visible.map((account) => (
             <label key={account.index} className="flex items-center gap-3 rounded-xl border border-white/10 p-3">
               <input type="checkbox" checked={account.selected} onChange={(event) => {
                 const selected = event.currentTarget.checked;
                 setDerivedAccounts((current) => current.map((item) => item.index === account.index ? { ...item, selected } : item));
               }} />
               <span className="min-w-0 flex-1">
-                <span className="block text-sm font-medium">Account {account.index + 1} · {account.funded ? "Active" : "Not funded"}</span>
+                <span className="block text-sm font-medium">Account {account.index + 1} · {account.funded ? "Funded" : "Not funded"}</span>
                 <span className="block truncate font-mono text-xs text-white/50">{account.publicKey}</span>
               </span>
             </label>
           ))}
-          <p className="text-xs text-white/50">Accounts outside the first 20 indexes require an extended scan. Secrets stay on this device.</p>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={showUnfunded} onChange={(event) => setShowUnfunded(event.currentTarget.checked)} />
+            Show unfunded addresses
+          </label>
+          <label className="block text-sm">Maximum indexes per scan
+            <select className="mt-1 w-full rounded-lg border border-white/15 bg-zinc-900 px-3 py-2" value={scanLimit}
+              onChange={(event) => setScanLimit(Number(event.currentTarget.value))}>
+              <option value={20}>20</option><option value={50}>50</option><option value={100}>100</option><option value={200}>200</option>
+            </select>
+          </label>
+          <Button type="button" onClick={() => discoverMnemonicAccounts(true)} disabled={discovering}>
+            {discovering ? "Scanning…" : `Scan next indexes from ${scanCursor}`}
+          </Button>
+          <p className="text-xs text-white/50">{lastScanGap >= 5 ? "Stopped after 5 consecutive unused indexes. Later indexes may still contain accounts; scan further if needed." : "Reached the configured scan limit."} No private keys are sent to Horizon.</p>
         </div>
       </WizardStepFrame>
     );
@@ -1626,7 +1652,7 @@ function OnboardingFlow(props: {
         currentStepIndex={currentStepIndex}
         totalSteps={totalSteps}
         footer={
-          <Button type="button" onClick={discoverMnemonicAccounts} disabled={discovering} strong>
+          <Button type="button" onClick={() => discoverMnemonicAccounts(false)} disabled={discovering} strong>
             <KeyRound size={16} /> {discovering ? "Searching accounts…" : "Find derived accounts"}
           </Button>
         }
