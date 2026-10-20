@@ -927,6 +927,8 @@ function OnboardingFlow(props: {
   const [lastScanGap, setLastScanGap] = useState(0);
   const [scanProgress, setScanProgress] = useState<number | null>(null);
   const scanLock = useRef(false);
+  const recoveryRevision = useRef(0);
+  const [scanFingerprint, setScanFingerprint] = useState("");
   const [showUnfunded, setShowUnfunded] = useState(false);
 
   const selectedNetwork =
@@ -973,6 +975,10 @@ function OnboardingFlow(props: {
   }
 
   function chooseNetwork(networkId: string) {
+    recoveryRevision.current += 1;
+    setDerivedAccounts([]);
+    setScanFingerprint("");
+    setScanCursor(0);
     setSelectedNetworkId(networkId);
     props.setState((current) => ({
       ...current,
@@ -1159,15 +1165,19 @@ function OnboardingFlow(props: {
     setDiscovering(true);
     setDiscoveryError("");
     setScanProgress(null);
-    const start = continueFromLast ? scanCursor : 0;
+    const fingerprint = `${selectedNetwork.id}:${mnemonic.trim().toLowerCase().replace(/\\s+/g, " ")}`;
+    const reusePrevious = continueFromLast && scanFingerprint === fingerprint;
+    const revision = recoveryRevision.current;
+    const start = reusePrevious ? scanCursor : 0;
     const limit = Math.min(500, Math.max(1, scanLimit));
     const GAP_LIMIT = 5;
     try {
-      const found = continueFromLast ? [...derivedAccounts] : [];
+      const found = reusePrevious ? [...derivedAccounts] : [];
       const scanNetworkId = selectedNetwork.id;
       let consecutiveUnused = 0;
       let nextIndex = start;
-      while (nextIndex < start + limit && (continueFromLast || consecutiveUnused < GAP_LIMIT)) {
+      while (nextIndex < start + limit && (reusePrevious || consecutiveUnused < GAP_LIMIT)) {
+        if (recoveryRevision.current !== revision) return;
         const index = nextIndex;
         setScanProgress(index);
         const publicKey = deriveStellarKeypair(mnemonic, index).publicKey;
@@ -1178,7 +1188,9 @@ function OnboardingFlow(props: {
         consecutiveUnused = funded ? 0 : consecutiveUnused + 1;
         nextIndex += 1;
       }
+      if (recoveryRevision.current !== revision) return;
       if (selectedNetwork.id !== scanNetworkId) throw new Error("Network changed during account discovery.");
+      setScanFingerprint(fingerprint);
       setDerivedAccounts(found);
       setScanCursor(nextIndex);
       setLastScanGap(consecutiveUnused);
@@ -1220,6 +1232,8 @@ function OnboardingFlow(props: {
   async function importSelectedDerivedAccounts() {
     if (!selectedNetwork || !isValidMnemonic(mnemonic)) return;
     if (selectedNetwork.accountKeyAlgorithm === "secp256k1") return props.setNotice({ type: "error", text: "Legacy secp256k1 account import is not yet supported for this fork." });
+    const fingerprint = `${selectedNetwork.id}:${mnemonic.trim().toLowerCase().replace(/\\s+/g, " ")}`;
+    if (scanFingerprint !== fingerprint) return props.setNotice({ type: "error", text: "Recovery words or network changed. Scan again before importing accounts." });
     const selected = derivedAccounts.filter((item) => item.selected);
     if (!selected.length) return props.setNotice({ type: "error", text: "Select at least one derived account." });
     setCreating(true);
