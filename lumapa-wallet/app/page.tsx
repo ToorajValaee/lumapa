@@ -1147,7 +1147,7 @@ function OnboardingFlow(props: {
       for (let offset = 0; offset < candidates.length; offset += 4) {
         const batch = candidates.slice(offset, offset + 4);
         const checked = await Promise.all(batch.map(async ({ index, publicKey }) => {
-          const response = await fetch(`${selectedNetwork.horizonUrl.replace(/\\/$/, "")}/accounts/${encodeURIComponent(publicKey)}`);
+          const response = await fetch(`${selectedNetwork.horizonUrl.replace(/\/$/, "")}/accounts/${encodeURIComponent(publicKey)}`);
           if (response.status === 404) return { index, publicKey, funded: false, selected: false };
           if (!response.ok) throw new Error(`Horizon HTTP ${response.status} for account index ${index}`);
           return { index, publicKey, funded: true, selected: true };
