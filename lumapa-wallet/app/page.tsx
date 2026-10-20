@@ -63,6 +63,7 @@ import {
   submitSignedXdr,
 } from "@/lib/stellar";
 import { decryptText, encryptText } from "@/lib/vaultCrypto";
+import { getLegacyForkAdapter } from "@/lib/legacy-fork-adapter";
 import {
   deriveStellarKeypair,
   generateMnemonic,
@@ -1147,7 +1148,12 @@ function OnboardingFlow(props: {
       props.setNotice({ type: "error", text: "Enter a valid 12- or 24-word recovery phrase." });
       return;
     }
-    if (selectedNetwork.accountKeyAlgorithm === "secp256k1") return props.setNotice({ type: "error", text: "This custom fork requires a dedicated secp256k1 account adapter. Ed25519 scanning cannot recover its addresses." });
+    if (selectedNetwork.accountKeyAlgorithm === "secp256k1") {
+      const adapter = getLegacyForkAdapter(selectedNetwork);
+      if (!adapter) return props.setNotice({ type: "error", text: "No verified secp256k1 adapter is installed for this fork. Its Core source and derivation/signature specification are required." });
+      return props.setNotice({ type: "error", text: "Legacy account discovery is not enabled until fork-specific imports and signing are fully validated." });
+    }
+    if (discovering) return;
     setDiscovering(true);
     setDiscoveryError("");
     setScanProgress(null);
