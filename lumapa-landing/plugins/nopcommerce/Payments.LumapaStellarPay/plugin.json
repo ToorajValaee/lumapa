@@ -1,0 +1,13 @@
+{
+  "Group": "Payment methods",
+  "FriendlyName": "Lumapa Stellar Pay",
+  "SystemName": "Payments.LumapaStellarPay",
+  "Version": "0.2.0",
+  "SupportedVersions": [
+    "4.90"
+  ],
+  "Author": "badje.ir",
+  "DisplayOrder": 1,
+  "FileName": "Nop.Plugin.Payments.LumapaStellarPay.dll",
+  "Description": "Accept standards-based Stellar SEP-7 payments through Lumapa checkout sessions. Powered by badje.ir."
+}

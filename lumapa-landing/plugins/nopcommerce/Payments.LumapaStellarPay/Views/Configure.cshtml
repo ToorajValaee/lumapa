@@ -1,0 +1,88 @@
+@model Nop.Plugin.Payments.LumapaStellarPay.Models.ConfigurationModel
+@{
+    Layout = "_ConfigurePlugin";
+}
+<form asp-controller="LumapaStellarPay" asp-action="Configure" method="post">
+    <div class="cards-group">
+        <div class="card card-default">
+            <div class="card-header">
+                Lumapa Stellar Pay settings
+            </div>
+            <div class="card-body">
+                <div class="form-group row">
+                    <div class="col-md-3"><nop-label asp-for="CheckoutBaseUrl" /></div>
+                    <div class="col-md-9">
+                        <nop-editor asp-for="CheckoutBaseUrl" />
+                        <span class="form-text text-muted">Use your Lumapa landing/checkout URL, for example https://lumapa.ir. Do not use app.lumapa.ir here.</span>
+                    </div>
+                </div>
+                <div class="form-group row">
+                    <div class="col-md-3"><nop-label asp-for="MerchantId" /></div>
+                    <div class="col-md-9"><nop-editor asp-for="MerchantId" /></div>
+                </div>
+                <div class="form-group row">
+                    <div class="col-md-3"><nop-label asp-for="NetworkType" /></div>
+                    <div class="col-md-9">
+                        <select asp-for="NetworkType" class="form-control">
+                            <option value="lumapa">Lumapa private network</option>
+                            <option value="public">Stellar public network</option>
+                            <option value="testnet">Stellar testnet</option>
+                            <option value="custom">Custom Stellar network</option>
+                        </select>
+                        <span class="form-text text-muted">Choose where this shop receives payments. Fill the custom network section only when Custom is selected.</span>
+                    </div>
+                </div>
+                <div class="card card-default mt-3">
+                    <div class="card-header">Custom network details</div>
+                    <div class="card-body">
+                        <p class="text-muted">Required only when Network is Custom. These values are sent inside the payment session so the customer wallet can sign for the correct Stellar network.</p>
+                        <div class="form-group row">
+                            <div class="col-md-3"><nop-label asp-for="CustomNetworkId" /></div>
+                            <div class="col-md-9"><nop-editor asp-for="CustomNetworkId" /></div>
+                        </div>
+                        <div class="form-group row">
+                            <div class="col-md-3"><nop-label asp-for="CustomNetworkName" /></div>
+                            <div class="col-md-9"><nop-editor asp-for="CustomNetworkName" /></div>
+                        </div>
+                        <div class="form-group row">
+                            <div class="col-md-3"><nop-label asp-for="CustomHorizonUrl" /></div>
+                            <div class="col-md-9"><nop-editor asp-for="CustomHorizonUrl" /></div>
+                        </div>
+                        <div class="form-group row">
+                            <div class="col-md-3"><nop-label asp-for="CustomNetworkPassphrase" /></div>
+                            <div class="col-md-9"><nop-editor asp-for="CustomNetworkPassphrase" /></div>
+                        </div>
+                        <div class="form-group row">
+                            <div class="col-md-3"><nop-label asp-for="CustomNativeAssetCode" /></div>
+                            <div class="col-md-9"><nop-editor asp-for="CustomNativeAssetCode" /></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group row mt-3">
+                    <div class="col-md-3"><nop-label asp-for="Destination" /></div>
+                    <div class="col-md-9"><nop-editor asp-for="Destination" /></div>
+                </div>
+                <div class="form-group row">
+                    <div class="col-md-3"><nop-label asp-for="AssetCode" /></div>
+                    <div class="col-md-9">
+                        <nop-editor asp-for="AssetCode" />
+                        <span class="form-text text-muted">For a native asset, enter its display code and leave issuer empty. For issued assets, enter the issued asset code.</span>
+                    </div>
+                </div>
+                <div class="form-group row">
+                    <div class="col-md-3"><nop-label asp-for="Issuer" /></div>
+                    <div class="col-md-9"><nop-editor asp-for="Issuer" /></div>
+                </div>
+                <div class="form-group row">
+                    <div class="col-md-3"><nop-label asp-for="ExpiresMinutes" /></div>
+                    <div class="col-md-9"><nop-editor asp-for="ExpiresMinutes" /></div>
+                </div>
+                <div class="form-group row">
+                    <div class="col-md-3"><nop-label asp-for="DescriptionText" /></div>
+                    <div class="col-md-9"><nop-editor asp-for="DescriptionText" /></div>
+                </div>
+                <button type="submit" name="save" class="btn btn-primary">Save</button>
+            </div>
+        </div>
+    </div>
+</form>

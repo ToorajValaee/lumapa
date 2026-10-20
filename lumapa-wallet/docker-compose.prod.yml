@@ -1,0 +1,21 @@
+services:
+  lumapa-wallet:
+    image: lumapa-wallet:latest
+    container_name: lumapa-wallet
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3200:3000"
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      NEXT_PUBLIC_LUMAPA_WALLET_URL: "https://app.lumapa.ir"
+      NEXT_PUBLIC_LUMAPA_PUBLIC_URL: "https://lumapa.ir"
+      NEXT_PUBLIC_LUMAPA_HORIZON_URL: "https://horizon.badje.ir"
+      NEXT_PUBLIC_LUMAPA_NETWORK_PASSPHRASE: "Lumapa Network ; July 2026"
+      NEXT_PUBLIC_LUMAPA_NATIVE_SYMBOL: "BADJ"
+      NEXT_PUBLIC_LUMAPA_NATIVE_NAME: "Lumapa native"
+      NEXT_PUBLIC_LUMAPA_EXPLORER_URL: ""
+      LUMAPA_HORIZON_URL: "https://horizon.badje.ir"
+      LUMAPA_NETWORK_PASSPHRASE: "Lumapa Network ; July 2026"
+      LUMAPA_STARTER_SECRET: "S_REPLACE_WITH_LUMAPA_STARTER_SECRET"
+      LUMAPA_STARTING_BALANCE: "10"

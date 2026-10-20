@@ -1,0 +1,16 @@
+node_modules
+.next
+.git
+.DS_Store
+npm-debug.log
+plugins/nopcommerce/**/bin
+plugins/nopcommerce/**/obj
+*.tar
+*.zip
+.env
+.env.*
+coverage
+dist
+out
+tmp
+.turbo
