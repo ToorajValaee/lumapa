@@ -1049,7 +1049,6 @@ function OnboardingFlow(props: {
   }
 
   function addCustomNetwork() {
-    if (customKeyAlgorithm === "secp256k1") return props.setNotice({ type: "error", text: "This fork needs its account encoding and signing adapter. Please choose Ed25519 until native secp256k1 support is verified." });
     if (!horizonUrl || !passphrase)
       return props.setNotice({
         type: "error",
@@ -1074,10 +1073,10 @@ function OnboardingFlow(props: {
     }));
     setSelectedNetworkId(network.id);
     setMethod("recover");
-    setStep("recoverChoice");
+    setStep(customKeyAlgorithm === "secp256k1" ? "network" : "recoverChoice");
     props.setNotice({
       type: "ok",
-      text: "Custom network added. Recover an account on it now.",
+      text: customKeyAlgorithm === "secp256k1" ? "Legacy network added in read-only configuration mode. Account recovery and signing require a fork adapter." : "Custom network added. Recover an account on it now.",
     });
   }
 
@@ -1155,9 +1154,9 @@ function OnboardingFlow(props: {
     const GAP_LIMIT = 5;
     try {
       const found = continueFromLast ? [...derivedAccounts] : [];
-      let consecutiveUnused = 0;
+      let consecutiveUnused = continueFromLast ? lastScanGap : 0;
       let nextIndex = start;
-      while (nextIndex < start + limit && consecutiveUnused < GAP_LIMIT) {
+      while (nextIndex < start + limit && (continueFromLast || consecutiveUnused < GAP_LIMIT)) {
         const index = nextIndex;
         const publicKey = deriveStellarKeypair(mnemonic, index).publicKey;
         const response = await fetch(`${selectedNetwork.horizonUrl.replace(/\/$/, "")}/accounts/${encodeURIComponent(publicKey)}`, { cache: "no-store" });
@@ -1166,6 +1165,7 @@ function OnboardingFlow(props: {
         found.push({ index, publicKey, funded, selected: funded });
         consecutiveUnused = funded ? 0 : consecutiveUnused + 1;
         nextIndex += 1;
+        if (continueFromLast && funded) break;
       }
       setDerivedAccounts(found);
       setScanCursor(nextIndex);
@@ -1180,6 +1180,7 @@ function OnboardingFlow(props: {
 
   async function saveRecoveredAccount() {
     if (!selectedNetwork) return;
+    if (selectedNetwork.accountKeyAlgorithm === "secp256k1") return props.setNotice({ type: "error", text: "Legacy secp256k1 secret import needs the fork-specific address and signing adapter." });
     if (recoverType === "mnemonic") return discoverMnemonicAccounts();
     if (!secret.trim()) return props.setNotice({ type: "error", text: "Enter the secret seed." });
     setCreating(true);
@@ -1191,6 +1192,7 @@ function OnboardingFlow(props: {
         label: label || `Recovered ${props.state.accounts.length + 1}`,
         publicKey: recovered.publicKey,
         networkId: selectedNetwork.id,
+        keyAlgorithm: "ed25519",
         encryptedSecret: await encryptText(recovered.secret, vaultKey),
         importedBy: "secret",
         createdAt: new Date().toISOString(),
@@ -1221,6 +1223,7 @@ function OnboardingFlow(props: {
           publicKey: derived.publicKey,
           networkId: selectedNetwork.id,
           derivationPath: derived.derivationPath,
+          keyAlgorithm: "ed25519",
           encryptedSecret: await encryptText(derived.secret, vaultKey),
           encryptedMnemonic,
           importedBy: "mnemonic",
