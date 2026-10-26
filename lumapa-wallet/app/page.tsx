@@ -927,6 +927,7 @@ function OnboardingFlow(props: {
   const [lastScanGap, setLastScanGap] = useState(0);
   const [scanProgress, setScanProgress] = useState<number | null>(null);
   const scanLock = useRef(false);
+  const scanAbort = useRef<AbortController | null>(null);
   const recoveryRevision = useRef(0);
   const [scanFingerprint, setScanFingerprint] = useState("");
   const [showUnfunded, setShowUnfunded] = useState(false);
@@ -976,6 +977,7 @@ function OnboardingFlow(props: {
 
   function chooseNetwork(networkId: string) {
     recoveryRevision.current += 1;
+    scanAbort.current?.abort();
     setDerivedAccounts([]);
     setScanFingerprint("");
     setScanCursor(0);
@@ -1162,6 +1164,8 @@ function OnboardingFlow(props: {
     }
     if (scanLock.current) return;
     scanLock.current = true;
+    const abortController = new AbortController();
+    scanAbort.current = abortController;
     setDiscovering(true);
     setDiscoveryError("");
     setScanProgress(null);
@@ -1181,7 +1185,7 @@ function OnboardingFlow(props: {
         const index = nextIndex;
         setScanProgress(index);
         const publicKey = deriveStellarKeypair(mnemonic, index).publicKey;
-        const response = await fetch(`${selectedNetwork.horizonUrl.replace(/\/$/, "")}/accounts/${encodeURIComponent(publicKey)}`, { cache: "no-store" });
+        const response = await fetch(`${selectedNetwork.horizonUrl.replace(/\/$/, "")}/accounts/${encodeURIComponent(publicKey)}`, { cache: "no-store", signal: abortController.signal });
         if (response.status !== 404 && !response.ok) throw new Error(`Horizon error ${response.status} at account index ${index}. Verify network/Horizon configuration.`);
         const funded = response.ok;
         found.push({ index, publicKey, funded, selected: funded });
@@ -1196,10 +1200,16 @@ function OnboardingFlow(props: {
       setLastScanGap(consecutiveUnused);
       setStep("recoverAccounts");
     } catch (error) {
+      if (abortController.signal.aborted) return;
       const message = error instanceof Error ? error.message : "Could not discover accounts.";
       setDiscoveryError(message);
       props.setNotice({ type: "error", text: message });
-    } finally { scanLock.current = false; setDiscovering(false); setScanProgress(null); }
+    } finally {
+      if (scanAbort.current === abortController) scanAbort.current = null;
+      scanLock.current = false;
+      setDiscovering(false);
+      setScanProgress(null);
+    }
   }
 
   async function saveRecoveredAccount() {
